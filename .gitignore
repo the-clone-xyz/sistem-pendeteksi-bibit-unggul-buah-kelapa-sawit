@@ -14,5 +14,8 @@ dataset/**/*
 models/*
 !models/.gitkeep
 
+data/*
+!data/.gitkeep
+
 *.log
 training_history.png

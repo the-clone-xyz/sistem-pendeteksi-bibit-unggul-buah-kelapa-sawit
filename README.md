@@ -8,6 +8,22 @@ Aplikasi klasifikasi citra sawit untuk tiga kelas:
 
 Project ini bisa dijalankan sebagai GUI browser dengan Streamlit. Jika model belum tersedia, aplikasi memakai estimasi sementara berbasis warna. Setelah model dilatih, aplikasi otomatis memakai file model dari folder `models`.
 
+## Database SQLite
+
+Aplikasi memakai SQLite untuk menyimpan riwayat prediksi lokal. Database dibuat otomatis saat aplikasi dijalankan:
+
+```text
+data/predictions.sqlite3
+```
+
+Tabel utama:
+
+```text
+predictions
+```
+
+Data yang disimpan meliputi nama file, hash gambar, kelas prediksi, confidence, rekomendasi, sumber prediksi, path model, dan skor tiap kelas dalam format JSON.
+
 ## Struktur Dataset
 
 Isi gambar sesuai struktur berikut:
@@ -71,6 +87,7 @@ python src/train.py --architecture mobilenetv2 --weights imagenet
 ```
 
 Catatan: file dataset asli dan model hasil training diabaikan oleh `.gitignore` agar repository tetap ringan. Jika model perlu disimpan di GitHub, gunakan Git LFS atau hapus aturan ignore untuk file model yang dipilih.
+File database SQLite di folder `data` juga diabaikan oleh `.gitignore` karena berisi data runtime lokal.
 
 ## Menjalankan Lokal
 
