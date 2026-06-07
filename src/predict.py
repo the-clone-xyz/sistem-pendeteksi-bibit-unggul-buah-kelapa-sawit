@@ -17,6 +17,7 @@ except ImportError:  # Allows: python src/predict.py image.jpg
 ROOT_DIR = Path(__file__).resolve().parents[1]
 MODEL_CANDIDATES = (
     ROOT_DIR / "models" / "model_sawit.keras",
+    ROOT_DIR / "models" / "model_sawit_retrained.keras",
     ROOT_DIR / "models" / "model_sawit.h5",
 )
 
@@ -180,8 +181,8 @@ def predict_image(
         return predict_with_heuristic(image)
 
     raise FileNotFoundError(
-        "Model belum ditemukan. Simpan model ke models/model_sawit.keras atau "
-        "models/model_sawit.h5."
+        "Model belum ditemukan. Simpan model ke models/model_sawit_retrained.keras, "
+        "models/model_sawit.keras, atau models/model_sawit.h5."
     )
 
 

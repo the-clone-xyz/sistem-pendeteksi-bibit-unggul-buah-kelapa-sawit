@@ -11,6 +11,14 @@ dataset/**/*
 !dataset/**/
 !dataset/**/.gitkeep
 
+dataset_bukan_sawit/**/*
+!dataset_bukan_sawit/**/
+!dataset_bukan_sawit/**/.gitkeep
+
+dataset_validasi/**/*
+!dataset_validasi/**/
+!dataset_validasi/**/.gitkeep
+
 models/*
 !models/.gitkeep
 
@@ -19,3 +27,9 @@ data/*
 
 *.log
 training_history.png
+
+dataset_pro/
+
+dataset_validasi_hardpositives/
+
+reports/

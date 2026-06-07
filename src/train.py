@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from types import SimpleNamespace
 
 try:
     from .predict import CLASS_NAMES
@@ -43,15 +44,25 @@ def normalize_dataset(tf, dataset):
     )
 
 
+def augmentation_layers(tf):
+    layers = tf.keras.layers
+    return tf.keras.Sequential(
+        [
+            layers.RandomFlip("horizontal"),
+            layers.RandomRotation(0.08),
+            layers.RandomZoom(0.10),
+            layers.RandomTranslation(0.05, 0.05),
+            layers.RandomContrast(0.12),
+        ],
+        name="image_augmentation",
+    )
+
+
 def build_simple_cnn(tf, num_classes: int):
     layers = tf.keras.layers
 
     inputs = tf.keras.Input(shape=(*IMAGE_SIZE, 3))
-    x = layers.RandomFlip("horizontal")(inputs)
-    x = layers.RandomRotation(0.08)(x)
-    x = layers.RandomZoom(0.10)(x)
-    x = layers.RandomTranslation(0.05, 0.05)(x)
-
+    x = augmentation_layers(tf)(inputs)
     x = layers.Conv2D(32, 3, activation="relu", padding="same")(x)
     x = layers.MaxPooling2D()(x)
     x = layers.Conv2D(64, 3, activation="relu", padding="same")(x)
@@ -78,9 +89,7 @@ def build_mobilenetv2(tf, num_classes: int, weights: str | None):
     base_model.trainable = False
 
     inputs = tf.keras.Input(shape=(*IMAGE_SIZE, 3))
-    x = layers.RandomFlip("horizontal")(inputs)
-    x = layers.RandomRotation(0.08)(x)
-    x = layers.RandomZoom(0.10)(x)
+    x = augmentation_layers(tf)(inputs)
     x = preprocess_input(x * 255.0)
     x = base_model(x, training=False)
     x = layers.GlobalAveragePooling2D()(x)
@@ -88,6 +97,61 @@ def build_mobilenetv2(tf, num_classes: int, weights: str | None):
     outputs = layers.Dense(num_classes, activation="softmax")(x)
 
     return tf.keras.Model(inputs, outputs, name="sawit_mobilenetv2")
+
+
+def compile_model(tf, model, learning_rate: float) -> None:
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
+        loss="categorical_crossentropy",
+        metrics=["accuracy"],
+    )
+
+
+def make_callbacks(tf, checkpoint_path: Path, patience: int):
+    return [
+        tf.keras.callbacks.ModelCheckpoint(
+            filepath=str(checkpoint_path),
+            monitor="val_accuracy",
+            mode="max",
+            save_best_only=True,
+        ),
+        tf.keras.callbacks.EarlyStopping(
+            monitor="val_loss",
+            mode="min",
+            patience=patience,
+            restore_best_weights=True,
+        ),
+    ]
+
+
+def find_mobilenetv2_base(tf, model):
+    for layer in model.layers:
+        if isinstance(layer, tf.keras.Model) and layer.name.startswith("mobilenetv2"):
+            return layer
+    return None
+
+
+def enable_mobilenetv2_fine_tuning(tf, model, fine_tune_at: int) -> int:
+    base_model = find_mobilenetv2_base(tf, model)
+    if base_model is None:
+        raise ValueError("Layer dasar MobileNetV2 tidak ditemukan untuk fine-tuning.")
+
+    base_model.trainable = True
+    for layer in base_model.layers[:fine_tune_at]:
+        layer.trainable = False
+    for layer in base_model.layers:
+        if isinstance(layer, tf.keras.layers.BatchNormalization):
+            layer.trainable = False
+
+    return sum(1 for layer in base_model.layers if layer.trainable)
+
+
+def merge_histories(histories):
+    merged: dict[str, list[float]] = {}
+    for history in histories:
+        for key, values in history.history.items():
+            merged.setdefault(key, []).extend(values)
+    return SimpleNamespace(history=merged)
 
 
 def save_training_plot(history, output_path: Path) -> None:
@@ -126,12 +190,44 @@ def save_training_plot(history, output_path: Path) -> None:
     print(f"Plot training disimpan: {plot_path}")
 
 
+def select_best_checkpoint(tf, checkpoint_paths: list[Path], validation_ds):
+    best_model = None
+    best_path = None
+    best_accuracy = -1.0
+    best_loss = 0.0
+
+    for checkpoint_path in checkpoint_paths:
+        if not checkpoint_path.exists():
+            continue
+        candidate_model = tf.keras.models.load_model(checkpoint_path)
+        val_loss, val_accuracy = candidate_model.evaluate(validation_ds, verbose=0)
+        print(
+            f"Checkpoint {checkpoint_path.name}: "
+            f"val_accuracy={val_accuracy:.4f}, val_loss={val_loss:.4f}"
+        )
+        if val_accuracy > best_accuracy:
+            best_model = candidate_model
+            best_path = checkpoint_path
+            best_accuracy = float(val_accuracy)
+            best_loss = float(val_loss)
+
+    if best_model is None:
+        raise RuntimeError("Tidak ada checkpoint model yang berhasil dibuat.")
+
+    print(
+        f"Checkpoint terbaik: {best_path} "
+        f"(val_accuracy={best_accuracy:.4f}, val_loss={best_loss:.4f})"
+    )
+    return best_model
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Training model klasifikasi sawit.")
     parser.add_argument("--dataset", default=str(DEFAULT_DATASET_DIR), help="Folder dataset.")
     parser.add_argument("--output", default=str(DEFAULT_MODEL_PATH), help="Path output model.")
-    parser.add_argument("--epochs", type=int, default=20, help="Jumlah epoch training.")
+    parser.add_argument("--epochs", type=int, default=20, help="Jumlah epoch training awal.")
     parser.add_argument("--batch-size", type=int, default=16, help="Ukuran batch.")
+    parser.add_argument("--learning-rate", type=float, default=1e-3, help="Learning rate awal.")
     parser.add_argument(
         "--architecture",
         choices=("simple_cnn", "mobilenetv2"),
@@ -143,6 +239,24 @@ def main() -> None:
         choices=("none", "imagenet"),
         default="none",
         help="Bobot awal untuk MobileNetV2.",
+    )
+    parser.add_argument(
+        "--fine-tune-epochs",
+        type=int,
+        default=0,
+        help="Epoch tambahan untuk fine-tuning MobileNetV2.",
+    )
+    parser.add_argument(
+        "--fine-tune-at",
+        type=int,
+        default=100,
+        help="Indeks layer MobileNetV2 mulai dibuka saat fine-tuning.",
+    )
+    parser.add_argument(
+        "--fine-tune-learning-rate",
+        type=float,
+        default=1e-5,
+        help="Learning rate saat fine-tuning.",
     )
     args = parser.parse_args()
 
@@ -187,35 +301,46 @@ def main() -> None:
     else:
         model = build_simple_cnn(tf, len(CLASS_NAMES))
 
-    model.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
-        loss="categorical_crossentropy",
-        metrics=["accuracy"],
-    )
+    histories = []
+    checkpoint_paths = [output_path]
 
-    callbacks = [
-        tf.keras.callbacks.ModelCheckpoint(
-            filepath=str(output_path),
-            monitor="val_accuracy",
-            save_best_only=True,
-        ),
-        tf.keras.callbacks.EarlyStopping(
-            monitor="val_loss",
-            patience=5,
-            restore_best_weights=True,
-        ),
-    ]
-
+    compile_model(tf, model, args.learning_rate)
     history = model.fit(
         train_ds,
         validation_data=validation_ds,
         epochs=args.epochs,
-        callbacks=callbacks,
+        callbacks=make_callbacks(tf, output_path, patience=5),
     )
+    histories.append(history)
 
+    if args.fine_tune_epochs > 0:
+        if args.architecture != "mobilenetv2":
+            print("Fine-tuning dilewati karena hanya didukung untuk MobileNetV2.")
+        else:
+            model = tf.keras.models.load_model(output_path)
+            trainable_layers = enable_mobilenetv2_fine_tuning(
+                tf,
+                model,
+                args.fine_tune_at,
+            )
+            print(f"Fine-tuning MobileNetV2: {trainable_layers} layer dasar trainable.")
+            compile_model(tf, model, args.fine_tune_learning_rate)
+            fine_tune_checkpoint = output_path.with_name(
+                f"{output_path.stem}_fine_tune{output_path.suffix}"
+            )
+            checkpoint_paths.append(fine_tune_checkpoint)
+            fine_tune_history = model.fit(
+                train_ds,
+                validation_data=validation_ds,
+                epochs=args.fine_tune_epochs,
+                callbacks=make_callbacks(tf, fine_tune_checkpoint, patience=4),
+            )
+            histories.append(fine_tune_history)
+
+    model = select_best_checkpoint(tf, checkpoint_paths, validation_ds)
     model.save(output_path)
     print(f"Model disimpan: {output_path}")
-    save_training_plot(history, output_path)
+    save_training_plot(merge_histories(histories), output_path)
 
     test_dir = dataset_dir / "test"
     test_count = sum(dataset_split_summary(dataset_dir, CLASS_NAMES)["test"].values())
