@@ -78,13 +78,15 @@ Format output model validasi yang didukung:
 - 1 output sigmoid: nilai mendekati 1 berarti `sawit`.
 - 2 output softmax: urutan kelas `bukan_sawit`, `sawit`.
 
-Jalankan aplikasi:
+Aplikasi Streamlit otomatis dijalankan saat Codespace start atau saat VS Code attach ke Codespace. Port lokal yang dipakai adalah `8501`.
+
+Cloudflare tunnel juga otomatis dijalankan jika `CLOUDFLARE_TUNNEL_TOKEN` tersedia sebagai Codespaces secret atau tersimpan di file `.env` lokal dengan format berikut:
 
 ```bash
-streamlit run app.py
+CLOUDFLARE_TUNNEL_TOKEN=isi_token_tunnel
 ```
 
-Codespaces akan menampilkan port `8501`. Buka port tersebut untuk memakai aplikasi.
+Log startup tersimpan di `/tmp/sawit-codespace-services/streamlit.log` dan `/tmp/sawit-codespace-services/cloudflared.log`.
 
 ## Training Opsional
 

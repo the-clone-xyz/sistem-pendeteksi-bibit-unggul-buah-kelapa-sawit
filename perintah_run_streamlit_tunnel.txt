@@ -1,0 +1,7 @@
+cd /workspaces/sistem-pendeteksi-bibit-unggul-buah-kelapa-sawit
+mkdir -p /tmp/sawit-codespace-services "$HOME/.local/bin"
+set -a; [ ! -f .env ] || . ./.env; set +a
+CLOUDFLARED_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"; [ "$(uname -m)" = "aarch64" ] || [ "$(uname -m)" = "arm64" ] && CLOUDFLARED_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"
+[ -x "$HOME/.local/bin/cloudflared" ] || curl -L --fail --show-error -o "$HOME/.local/bin/cloudflared" "$CLOUDFLARED_URL"
+chmod +x "$HOME/.local/bin/cloudflared"
+python3 -m streamlit run app.py --server.address 0.0.0.0 --server.port 8501 > /tmp/sawit-codespace-services/streamlit.log 2>&1 & TUNNEL_TOKEN="${CLOUDFLARE_TUNNEL_TOKEN}" "$HOME/.local/bin/cloudflared" tunnel --no-autoupdate run > /tmp/sawit-codespace-services/cloudflared.log 2>&1
