@@ -30,6 +30,17 @@ is_running() {
   ps -ef | grep -E "$pattern" | grep -v grep >/dev/null 2>&1
 }
 
+run_detached() {
+  local log_file="$1"
+  shift
+
+  if command -v setsid >/dev/null 2>&1; then
+    nohup setsid -f "$@" >> "$log_file" 2>&1 </dev/null &
+  else
+    nohup "$@" >> "$log_file" 2>&1 </dev/null &
+  fi
+}
+
 read_token_from_env_file() {
   local env_file="$1"
   local line
@@ -59,10 +70,9 @@ start_streamlit() {
 
   (
     cd "$ROOT_DIR" || exit 1
-    nohup python3 -m streamlit run app.py \
+    run_detached "$STREAMLIT_LOG" python3 -m streamlit run app.py \
       --server.address "$APP_HOST" \
-      --server.port "$APP_PORT" \
-      >> "$STREAMLIT_LOG" 2>&1 &
+      --server.port "$APP_PORT"
   )
 
   echo "Started Streamlit on ${APP_HOST}:${APP_PORT}. Log: ${STREAMLIT_LOG}"
@@ -126,8 +136,9 @@ start_cloudflare_tunnel() {
 
   (
     cd "$ROOT_DIR" || exit 1
-    TUNNEL_TOKEN="$token" nohup "$CLOUDFLARED_BIN" tunnel --no-autoupdate run \
-      >> "$CLOUDFLARED_LOG" 2>&1 &
+    export TUNNEL_TOKEN="$token"
+    unset CLOUDFLARE_TUNNEL_TOKEN
+    run_detached "$CLOUDFLARED_LOG" "$CLOUDFLARED_BIN" tunnel --no-autoupdate run
   )
 
   echo "Started Cloudflare tunnel. Log: ${CLOUDFLARED_LOG}"
